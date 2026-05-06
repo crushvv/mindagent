@@ -43,8 +43,7 @@
 - Whisper Client 封装（语音/视频音轨转写）。
 - Vision/Video Adapter（图像/视频内容摘要转文本）。
 - Repository 封装（会话、消息、审计日志）。
-- MCP Tool Gateway：统一管理 MCP Server 连接、Tool 注册、调用、超时、重试与鉴权。
-- Tool Adapters：邮件发送器、Excel 写入器（以 MCP Tool 形式暴露给 Agent）。
+- Tool Adapters：邮件发送器、Excel 写入器（供 Agent 工具调用）。
 - 缓存与配置加载（Redis / env / yaml）。
 
 ## 5. API 设计（MVP）
@@ -219,14 +218,8 @@
 
 工具定义：
 
-- `sendRiskEmailTool`：发送导员风险通知邮件（MCP Tool）。
-- `appendConsultationExcelTool`：追加咨询记录到 Excel（MCP Tool）。
-
-MCP 封装建议：
-
-- 以 `mindagent-tools-mcp` 作为独立 MCP Server，统一暴露工具能力。
-- Agent 只感知工具名称与参数 schema，不直接耦合 SMTP/Excel 具体实现。
-- 新工具通过新增 MCP Tool 扩展，避免修改核心 Agent 决策逻辑。
+- `sendRiskEmailTool`：发送导员风险通知邮件。
+- `appendConsultationExcelTool`：追加咨询记录到 Excel。
 
 触发规则（第一版）：
 
@@ -250,17 +243,6 @@ MCP 封装建议：
 - 工具调用失败不阻断主回复，但必须记录告警并触发重试任务。
 - 对 `risk` 邮件工具需至少重试 N 次（可配置），并在最终失败时写高优先级告警。
 
-## 8.8 MCP 工具目录（第一版）
-
-- `sendRiskEmailTool(sessionId, turnId, anonymousUserId, riskLevel, summary, idempotencyKey)`
-- `appendConsultationExcelTool(sessionId, turnId, anonymousUserId, emotionLabel, riskLevel, routePolicy, replySummary, idempotencyKey)`
-
-工具治理要求：
-
-- 每个工具必须定义清晰 JSON Schema（必填字段、类型、枚举）。
-- 每个工具必须支持幂等键，避免重复执行。
-- 每个工具必须输出标准结果：`success`、`errorCode`、`retryable`、`message`。
-
 ## 9. 配置规范
 
 - `OLLAMA_BASE_URL`：Ollama 服务地址
@@ -276,9 +258,6 @@ MCP 封装建议：
 - `AGENT_TOOL_EXCEL_ENABLED`：是否启用 Excel 留档工具
 - `AGENT_TOOL_EMAIL_RETRY_MAX`：邮件工具最大重试次数
 - `AGENT_TOOL_EXCEL_FILE_PATH`：Excel 存储路径
-- `MCP_TOOL_SERVER_ENABLED`：是否启用 MCP 工具服务
-- `MCP_TOOL_SERVER_URL`：MCP 服务地址
-- `MCP_TOOL_TIMEOUT_MS`：MCP 工具调用超时
 - `LOG_MASK_ENABLED`：是否开启日志脱敏
 
 ## 10. 可观测性规范
@@ -287,7 +266,6 @@ MCP 封装建议：
 - 记录关键指标：QPS、错误率、P95 延迟、模型超时次数。
 - 记录多模态指标：转写时延、图像分析时延、融合耗时、风险触发率。
 - 记录工具指标：邮件触发次数、邮件成功率、Excel 写入成功率、工具重试次数。
-- 记录 MCP 指标：工具调用耗时、成功率、超时率、schema 校验失败率。
 - 日志级别：`INFO` 记录业务路径，`ERROR` 记录异常栈与上下文（脱敏后）。
 
 ## 11. 测试策略
@@ -298,7 +276,6 @@ MCP 封装建议：
 - 集成测试：语音转写、图像文本化、视频音轨转写流程。
 - 集成测试：`risk` 标签触发邮件工具、非 `chat` 标签触发 Excel 工具。
 - 故障测试：邮件/Excel 工具失败重试与幂等去重。
-- 集成测试：MCP 工具 schema 校验、连接异常、超时与降级行为。
 - 回归用例：正常对话、边界输入、风险语义触发。
 - 性能冒烟：并发 5~10 线程验证基本稳定性。
 
