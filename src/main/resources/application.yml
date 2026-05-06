@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: mindagent
+  mail:
+    host: ${MAIL_HOST:smtp.qq.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        model: ${OLLAMA_MODEL:qwen2.5:7b}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+server:
+  port: ${SERVER_PORT:8080}
+
+mindagent:
+  whisper:
+    enabled: ${WHISPER_ENABLED:false}
+    base-url: ${WHISPER_BASE_URL:http://localhost:8000/v1}
+    model: ${WHISPER_MODEL:whisper-1}
+    api-key: ${WHISPER_API_KEY:}
+  tools:
+    email-enabled: ${AGENT_TOOL_EMAIL_ENABLED:true}
+    excel-enabled: ${AGENT_TOOL_EXCEL_ENABLED:true}
+    risk-email-to: ${RISK_EMAIL_TO:3373347091@qq.com}
+    excel-file-path: ${EXCEL_FILE_PATH:./excel/consultation_records.xlsx}

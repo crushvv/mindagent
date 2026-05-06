@@ -1,128 +1,146 @@
 # MindAgent
 
-一个用于学习多模态 Agent 开发的心理咨询助手项目，技术栈基于 Java + Spring AI，模型使用 Qwen2.5-7B，通过 Ollama 提供本地推理能力，并使用 Docker 进行部署与环境管理。
+一个用于学习多模态 Agent 开发的心理咨询助手项目，技术栈基于 **Java + Spring Boot + Spring AI**，对话模型通过 **Ollama** 使用 `qwen2.5:7b`，语音转写通过 **Spring AI OpenAI 兼容接口**（可接 OpenAI Whisper 或同类服务）。项目目标：可运行、可测试、可迭代，后续再逐步替换为文档中的完整架构（MCP 工具、RAG、LLM 单模态评分等）。
+
+## 当前已实现（2026-05-07）
+
+- **Spring Boot 3.4 + Java 17** 可运行后端，`mvn test` 通过。
+- **`POST /api/chat`**：多模态入参（`message` + `modalInputs`）、输入标准化、**规则版情绪融合**（四类标签 + 权重）、调用 Ollama 生成回复；响应中含 `toolExecutionResults`。
+- **`POST /api/transcribe`**：`multipart/form-data` 上传音频，走 Spring AI `OpenAiAudioTranscriptionModel` 转写。
+- **标签驱动工具链（首版实现）**：`risk` 时 **JavaMail** 发预警邮件；非 `chat` 时用 **Apache POI** 追加写入项目根目录下 **`excel/consultation_records.xlsx`**（目录自动创建）。后续可替换为 MCP 工具实现，接口 `AgentToolService` 保持不变。
+- **Actuator**：`GET /actuator/health` 健康检查。
+- **Maven 国内镜像**：项目内 `.mvn/settings.xml` + `maven.config`（可选，便于依赖下载）。
+
+> 说明：文档中「单模态由大模型判情绪 + 再融合」为**目标设计**；当前仓库里融合逻辑仍为**可跑通的规则版**，便于先打通链路，下一步再替换为 LLM 评分。
+
+## 快速启动
+
+```bash
+cd mindagent
+mvn test
+mvn spring-boot:run
+```
+
+浏览器可访问：`http://localhost:8080/actuator/health`（应看到 `{"status":"UP",...}`）。
+
+## 主要接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/chat` | JSON 体：`sessionId`, `userId`, `message`, `modalInputs`（可选） |
+| POST | `/api/transcribe` | `form-data` 字段 `file`：上传 wav 等音频 |
+| GET | `/actuator/health` | 健康检查 |
+
+## 环境变量（建议在 IDEA Maven 运行配置里一次性配置）
+
+**邮件（QQ SMTP 示例）**
+
+- `MAIL_HOST`（默认 `smtp.qq.com`）
+- `MAIL_PORT`（默认 `587`）
+- `MAIL_USERNAME`：发件 QQ 邮箱
+- `MAIL_PASSWORD`：QQ 邮箱 **SMTP 授权码**
+- `RISK_EMAIL_TO`：风险预警收件人（默认 `3373347091@qq.com`，可按需覆盖）
+
+**Excel 留档**
+
+- `EXCEL_FILE_PATH`：默认 `./excel/consultation_records.xlsx`
+
+**Ollama 对话**
+
+- `OLLAMA_BASE_URL`（默认 `http://localhost:11434`）
+- `OLLAMA_MODEL`（默认 `qwen2.5:7b`）
+
+**Whisper 转写（可选）**
+
+- `WHISPER_ENABLED`、`WHISPER_BASE_URL`、`WHISPER_MODEL`、`WHISPER_API_KEY`
+
+工具开关：`AGENT_TOOL_EMAIL_ENABLED`、`AGENT_TOOL_EXCEL_ENABLED`（默认 `true`）。
+
+IDEA：**Edit Configurations → Maven → Command line: `spring-boot:run` → Environment variables** 填入上表，可长期保存，无需每次在终端 export。
+
+---
 
 ## 1. 项目目标
 
 - 学习并实践 Spring AI 的 Agent 设计方式（Prompt、Tool、Memory、RAG、Workflow）。
-- 构建一个可演进的心理咨询场景 Agent（以支持性对话为主，不替代专业医疗诊断）。
+- 构建可演进的心理咨询场景 Agent（支持性对话为主，不替代专业医疗诊断）。
 - 建立可持续迭代的工程结构：可运行、可测试、可部署、可记录开发进度。
 
 ## 2. 功能边界（MVP）
 
-- 文本对话：支持多轮上下文记忆与角色设定。
-- 基础多模态预留：先预留图像/语音输入接口，不在第一阶段实现复杂处理链路。
-- 心理咨询风格回复：强调共情、澄清、支持，不给出医疗诊断结论。
-- 安全策略：对自伤/伤人等高风险语义给出危机干预提示（紧急求助建议）。
-- 会话记录：保存匿名化会话，便于后续评估与调优。
+- 文本对话；多模态输入结构已具备（语音转写、图像/视频仍为占位或简化路径）。
+- 心理咨询风格回复：共情、澄清、支持，不做医疗诊断。
+- 安全策略：危险词命中判 `risk`；危机场景需人工与专业机构介入。
+- 会话与留档：Excel 本地追加（首版）；后续可接数据库与审计日志。
 
 ## 3. 技术方案
 
-- 语言与框架：Java 17+、Spring Boot、Spring AI
-- 模型服务：Ollama + `qwen2.5:7b`
-- 工具协议：MCP（Model Context Protocol）统一封装 Agent 外部工具能力
-- 后端形态：Spring Boot 单体优先，后续按流量拆分服务
-- 容器化：Docker / Docker Compose
-- 数据存储（建议）：PostgreSQL（会话） + Redis（短期记忆缓存，可选）
-- 可观测性（后续）：Actuator + 日志聚合
+- Java 17+、Spring Boot、Spring AI（Ollama Chat + OpenAI 兼容 Audio）
+- 邮件：`spring-boot-starter-mail`（JavaMail）
+- Excel：`Apache POI`
+- 工具协议（规划）：MCP 统一封装外部工具；当前为直连实现
+- 容器化（规划）：Docker / Docker Compose
 
-## 4. 系统架构（初稿）
+## 4. 系统架构（目标）
 
-1. `mindagent-api`：对外 REST API（chat、session、health）。
-2. `mindagent-core`：Agent 编排（prompt 模板、工具调用、记忆策略、安全策略）。
-3. `mindagent-infra`：模型调用适配、数据库访问、缓存和外部组件封装。
-4. `deploy`：Docker Compose、环境变量模板、部署脚本。
+1. API：`/api/chat`、`/api/transcribe`、Actuator  
+2. Core：多模态标准化、情绪融合、路由策略、工具编排  
+3. Infra：Ollama、Whisper、后续 RAG/向量库、MCP  
+4. `deploy`：Compose（待补）
 
-### 4.1 Spring Boot 后端上线能力（必须项）
+### 4.1 Spring Boot 上线能力（目标）
 
-- 提供标准 REST API 与统一异常处理，满足前端/移动端接入。
-- 支持配置中心化（环境变量 + profile），区分 dev/staging/prod。
-- 支持健康探针（liveness/readiness）、日志追踪、优雅停机。
-- 支持容器化部署与滚动发布，满足后续上线运行需求。
+统一异常处理、配置分环境、健康探针、日志与观测、容器发布。
 
-## 5. 情绪标签驱动的回复路由（RAG/直答）
+## 5. 情绪标签与路由（设计）
 
-你提出的策略可以实现，并建议作为默认路由规则：
+- `chat`：直答（设计上不走 RAG）。  
+- `失落` / `焦虑` / `risk`：设计上走 RAG 增强（**RAG 代码待接**）。  
+- 危险关键词：**直接 `risk`**，优先于普通融合。
 
-- `chat`：直接生成回复（不走 RAG），降低时延与成本。
-- `失落` / `焦虑` / `risk`：先进行 RAG 检索，再结合检索内容生成回复。
-- 安全兜底：`risk` 标签必须走安全策略模板，RAG 仅作为辅助，不覆盖危机干预主回复。
+### 5.1 情绪识别与融合原则（文档目标）
 
-路由收益：
+- 单模态由大模型给出情绪分值（待实现）。  
+- 融合按模态权重合并，输出最终标签。  
+- 危险词硬规则优先。
 
-- 普通聊天更快，体验更自然。
-- 情绪波动和风险场景回复更稳，更可控，更可追溯。
+## 6. 风险通知与咨询留档
 
-## 6. 风险通知与咨询留档（新增）
+- `risk`：发预警邮件（当前 JavaMail）。  
+- 非 `chat`：写 Excel（当前 POI，路径 `excel/`）。  
+- 敏感信息最小化；生产环境需鉴权、审计与幂等（见 `docs/engineering-spec.md`）。
 
-- `risk` 场景（如自杀风险）触发 Agent 通过 MCP 调用邮件工具，通知导员。
-- 非 `chat` 场景（`失落`、`焦虑`、`risk`）触发 Agent 通过 MCP 调用 Excel 工具写入留档。
-- 留档字段建议包含：时间、会话 ID、匿名用户 ID、情绪标签、风险等级、路由策略、回复摘要、是否触发通知。
-- 默认遵循最小化与脱敏原则，避免在 Excel 中落敏感原文。
-- 未来新增工具（短信、企业微信、工单、日历）只需新增 MCP Tool，无需改动 Agent 主流程。
+## 7. 开发阶段规划（简）
 
-## 7. 开发阶段规划
+- Phase 0：工程可运行 — **进行中/基本具备**  
+- Phase 1：MVP 咨询 + 记忆 + 安全模板 + RAG  
+- Phase 2：LLM 单模态评分、多模态真实理解、观测与评测  
+- Phase 3：Compose、CI、部署文档  
 
-### Phase 0 - 项目初始化
-
-- 初始化 Spring Boot + Spring AI 工程
-- 接入本地 Ollama 与 Qwen2.5-7B
-- 完成基础对话 API 与健康检查
-
-### Phase 1 - 心理咨询 Agent MVP
-
-- 设计咨询助手系统提示词（共情、倾听、边界）
-- 接入会话记忆（最近 N 轮 + 摘要）
-- 增加风险语义识别与安全回复模板
-- 完成情绪标签路由（`chat` 直答；其余标签走 RAG）
-- 完成 `risk` 导员通知链路（异步）
-
-### Phase 2 - 多模态能力与质量提升
-
-- 增加图像输入能力（先做接口与占位处理）
-- 完成情绪评分与权重融合
-- 完成非 `chat` 咨询留档与 Excel 导出
-- 引入评估脚本（回复质量、安全性、稳定性）
-- 增加日志追踪与可观测性
-
-### Phase 3 - 工程化与部署
-
-- 完成 Docker Compose 一键启动
-- 增加 CI（构建 + 测试）
-- 输出部署文档与演示流程
-
-## 8. 项目结构（建议）
+## 8. 仓库结构（当前单模块）
 
 ```text
 mindagent/
+  ├─ pom.xml
   ├─ README.md
   ├─ DEVELOPMENT_LOG.md
-  ├─ docs/
-  │   ├─ architecture.md
-  │   ├─ prompts.md
-  │   └─ safety-guidelines.md
-  ├─ mindagent-api/
-  ├─ mindagent-core/
-  ├─ mindagent-infra/
-  └─ deploy/
+  ├─ docs/engineering-spec.md
+  ├─ .mvn/
+  ├─ src/main/java/com/mindagent/...
+  └─ src/main/resources/application.yml
 ```
 
 ## 9. 安全与伦理声明
 
-- 本项目用于学习 Agent 开发，不构成医疗建议或心理治疗。
-- 对于危机内容（如自伤、伤人、极端绝望表达），系统必须优先引导用户联系当地紧急救助和专业机构。
-- 所有用户数据应默认最小化采集、匿名化存储，并明确告知用途。
+本项目用于学习，不提供医疗建议。危机内容应引导用户联系当地紧急救助与专业机构。勿将真实 API Key、授权码提交到公开仓库。
 
-## 10. 近期任务（Next Sprint）
+## 10. 下一步（建议）
 
-1. 创建 Spring Boot 主工程与多模块骨架。
-2. 完成 Ollama 联通验证（`qwen2.5:7b`）。
-3. 实现 `/api/chat` MVP（单轮到多轮）。
-4. 落地情绪标签路由（`chat` 直答，其他标签 RAG）。
-5. 增加 `risk` 导员通知能力（异步、可重试）。
-6. 增加非 `chat` 咨询 Excel 留档导出。
-7. 编写第一版安全策略与系统提示词模板。
+1. 将情绪单模态评分改为 **LLM 输出结构化分值**（保留危险词兜底）。  
+2. 接入 **RAG**（向量库 + 检索）。  
+3. 将 `AgentToolService` 实现替换为 **MCP** 调用，保留 JavaMail/Excel 为 Tool 实现之一。  
+4. 补充 `docker-compose` 与生产配置模板。
 
 ---
 
-如果你希望，我下一步可以直接在这个仓库里把 `Spring Boot + Spring AI + Docker Compose` 骨架也一并搭起来。
+更细的接口契约与融合规范见 **`docs/engineering-spec.md`**；日常进度见 **`DEVELOPMENT_LOG.md`**。

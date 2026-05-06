@@ -18,3 +18,13 @@ Thumbs.db
 # Env
 .env
 .env.*
+
+# Generated consultation records (runtime)
+excel/
+
+# Local test assets (do not commit voice samples)
+/file/
+
+# Cursor / IDE Postman scratch (optional)
+.postman/
+postman/
